@@ -21,9 +21,9 @@ type Series struct {
 	Series []Serie `json:"series"`
 }
 type Serie struct {
-	Name    string     `json:"names"`
-	Columns []string   `json:"columns"`
-	Values  [][]uint64 `json:"values"`
+	Name    string          `json:"names"`
+	Columns []string        `json:"columns"`
+	Values  [][]interface{} `json:"values"`
 }
 
 func main() {
@@ -84,7 +84,7 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 				},
 			},
 		}
-		m.Results[0].Series[0].Values = [][]uint64{}
+		m.Results[0].Series[0].Values = make([][]interface{}, 0)
 
 		rows, err := db.Query(query)
 		if err != nil {
@@ -97,12 +97,18 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 		for row := range data {
 			if data[row] != nil {
 				timeVal, _ := strconv.ParseUint(data[row]["time"], 10, 64)
-				array_row := []uint64{timeVal}
-				log.Println(row)
+				var array_row []interface{}
+				array_row = append(array_row, timeVal)
 				for field_name, value := range data[row] {
 					if field_name != "time" {
-						intVal, _ := strconv.ParseUint(value, 10, 64)
-						array_row = append(array_row, intVal)
+						numVal, parseErr := strconv.ParseFloat(value, 64)
+						// could cast to int
+						if parseErr == nil {
+							array_row = append(array_row, numVal)
+						} else {
+							array_row = append(array_row, value)
+						}
+
 					}
 				}
 				m.Results[0].Series[0].Values = append(m.Results[0].Series[0].Values, array_row)
