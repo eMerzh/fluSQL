@@ -73,7 +73,11 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		query := r.FormValue("q")
-
+		if !areCredentialVerified(r) {
+			log.Println("Invalid Credentials")
+			http.Error(w, "401 Unauthorized", http.StatusUnauthorized)
+			return
+		}
 		m := Results{
 			[]Series{
 				Series{
@@ -89,11 +93,12 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 		rows, err := db.Query(query)
 		if err != nil {
 			log.Println("Query Error ", err)
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 		col, _ := rows.Columns()
 		m.Results[0].Series[0].Columns = col
-		data := PackageData(rows)
+		data := FetchRow(rows)
 		for row := range data {
 			if data[row] != nil {
 				timeVal, _ := strconv.ParseUint(data[row]["time"], 10, 64)
@@ -118,13 +123,21 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 		b, marsherr := json.Marshal(m)
 		if marsherr != nil {
 			log.Println("Unable to marshalize ", marsherr)
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 		fmt.Fprintf(w, "%s", b)
 	}
 }
 
-func PackageData(rows *sql.Rows) []map[string]string {
+func areCredentialVerified(r *http.Request) bool {
+	username := viper.GetString("influxUsername")
+	password := viper.GetString("influxPassword")
+
+	return r.FormValue("u") == username && r.FormValue("p") == password
+}
+
+func FetchRow(rows *sql.Rows) []map[string]string {
 	columns, err := rows.Columns()
 	if err != nil {
 		fmt.Println("Unable to read from database", err)

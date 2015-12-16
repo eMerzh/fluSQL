@@ -1,3 +1,5 @@
 DbType = "postgres"
 DbDSN = "postgres://user:pass@/database?sslmode=disable"
 ListenAddress = "127.0.0.1:8000"
+influxUsername = "usr"
+influxPassword = "passwd"
