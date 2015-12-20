@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -78,6 +81,8 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 			http.Error(w, "401 Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		query = parseTimePart(query)
+
 		m := Results{
 			[]Series{
 				Series{
@@ -89,10 +94,9 @@ func handleInfluxQuery(db *sql.DB) http.HandlerFunc {
 			},
 		}
 		m.Results[0].Series[0].Values = make([][]interface{}, 0)
-
 		rows, err := db.Query(query)
 		if err != nil {
-			log.Println("Query Error ", err)
+			log.Println("Query Error ", err, query)
 			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			return
 		}
@@ -135,6 +139,68 @@ func areCredentialVerified(r *http.Request) bool {
 	password := viper.GetString("influxPassword")
 
 	return r.FormValue("u") == username && r.FormValue("p") == password
+}
+
+func parseTimePart(query string) string {
+	InfluxTimeAbbrev := map[string]string{
+		"u": "microsecond",
+		"s": "second",
+		"m": "minute",
+		"h": "hour",
+		"d": "day",
+		"w": "week",
+	}
+
+	match_func := "translateTimePart("
+	func_start_index := strings.Index(query, match_func)
+	// Match the closing parenthesis to find the contained instructions
+	if func_start_index == -1 {
+		return query
+	}
+	opened_parent := 1
+	last_element_index := func_start_index + len(match_func)
+	for _, c := range query[func_start_index+len(match_func):] {
+		if c == '(' {
+			opened_parent++
+		}
+		if c == ')' {
+			opened_parent--
+			if opened_parent == 0 {
+				break
+			}
+		}
+		last_element_index++
+	}
+	pre_query := query[0:func_start_index]
+	post_query := query[last_element_index+1:]
+	result := query[func_start_index+len(match_func) : last_element_index]
+
+	if result != "" {
+
+		// Match Epoch First
+		re_epoch, _ := regexp.Compile(`(\d{4,})s`)
+		// epoch_string := re_epoch.FindString(result)
+		//fmt.Printf("match %s \n", result)
+		epoch_string := re_epoch.FindAllStringSubmatch(result, -1)
+		for _, v := range epoch_string {
+			epoch_int, _ := strconv.ParseInt(v[1], 10, 64)
+			date := time.Unix(epoch_int, 0)
+			result = strings.Replace(result, v[0], "'"+date.Format(time.RFC3339Nano)+"'", 1)
+		}
+
+		for abbr, fullName := range InfluxTimeAbbrev {
+			rd, _ := regexp.Compile(`(\d+)` + abbr)
+			result = rd.ReplaceAllStringFunc(result, func(s string) string {
+				if viper.GetString("DbType") == "mysql" {
+					return "interval " + s[0:len(s)-1] + " " + fullName
+				} else {
+					return " '" + s[0:len(s)-1] + " " + fullName + "'::interval"
+				}
+			})
+		}
+	}
+
+	return pre_query + result + post_query
 }
 
 func FetchRow(rows *sql.Rows) []map[string]string {
