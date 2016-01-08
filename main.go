@@ -179,8 +179,6 @@ func parseTimePart(query string) string {
 
 		// Match Epoch First
 		re_epoch, _ := regexp.Compile(`(\d{4,})s`)
-		// epoch_string := re_epoch.FindString(result)
-		//fmt.Printf("match %s \n", result)
 		epoch_string := re_epoch.FindAllStringSubmatch(result, -1)
 		for _, v := range epoch_string {
 			epoch_int, _ := strconv.ParseInt(v[1], 10, 64)
@@ -192,9 +190,9 @@ func parseTimePart(query string) string {
 			rd, _ := regexp.Compile(`(\d+)` + abbr)
 			result = rd.ReplaceAllStringFunc(result, func(s string) string {
 				if viper.GetString("DbType") == "mysql" {
-					return "interval " + s[0:len(s)-1] + " " + fullName
+					return "interval " + s[:len(s)-1] + " " + fullName
 				} else {
-					return " '" + s[0:len(s)-1] + " " + fullName + "'::interval"
+					return " '" + s[:len(s)-1] + " " + fullName + "'::interval"
 				}
 			})
 		}
